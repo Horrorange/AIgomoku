@@ -101,6 +101,8 @@ class DQNAgent:
         # In DQNAgent class, optimize_model method:
 
         # 在 DQNAgent 类的 optimize_model 方法中:
+        # 在 DQNAgent 类的 optimize_model 方法中:
+        # 在 DQNAgent 类的 optimize_model 方法中:
     def optimize_model(self):
         if len(self.memory) < BATCH_SIZE:
             return
@@ -109,49 +111,49 @@ class DQNAgent:
 
         states = states.to(device)
         actions = actions.to(device)
-        rewards = rewards.to(device)
+        rewards = rewards.to(device)  # 此时 rewards 的形状是 [BATCH_SIZE]
         next_states = next_states.to(device)
-        dones = dones.to(device)
+        dones = dones.to(device)  # 此时 dones 的形状是 [BATCH_SIZE]
 
-        # 之前的 DEBUG 打印
-        print(f"DEBUG (optimize_model): Shape of 'states' tensor from buffer: {states.shape}")
-
-        # 添加 channel 维度
         states = states.unsqueeze(1)
         next_states = next_states.unsqueeze(1)
 
-        print(f"DEBUG (optimize_model): Shape of 'states' tensor after unsqueeze: {states.shape}")
-        print(f"DEBUG (optimize_model): Shape of 'actions' tensor from buffer: {actions.shape}")  # 打印 actions 的形状
+        if actions.ndim == 1:
+            actions = actions.unsqueeze(1)  # actions 变为 [BATCH_SIZE, 1]
 
-        # VVVV CRITICAL FIX: 调整 actions 的形状 VVVV
-        # actions 当前形状是 (BATCH_SIZE), 我们需要 (BATCH_SIZE, 1) 给 gather
-        actions = actions.unsqueeze(1)
-        # ^^^^ CRITICAL FIX END ^^^^
-        print(f"DEBUG (optimize_model): Shape of 'actions' tensor after unsqueeze: {actions.shape}")
+        current_q_values = self.policy_net(states).gather(1, actions)  # current_q_values 形状 [BATCH_SIZE, 1]
+        print(f"DEBUG (optimize_model): Shape of 'current_q_values' tensor: {current_q_values.shape}")
+        print(f"DEBUG (optimize_model): Shape of 'dones' tensor from buffer: {dones.shape}")  # 应为 [128]
 
-        # 2. 计算当前状态动作对的 Q 值 (Q(s_t, a_t))
-        current_q_values = self.policy_net(states).gather(1, actions)
-
-        # 3. 计算下一状态的最大期望 Q 值 (max Q(s_{t+1}, a'))
-        non_final_mask = ~dones.squeeze(1)
+        non_final_mask = ~dones
         non_final_next_states = next_states[non_final_mask]
 
-        next_state_q_values = torch.zeros(BATCH_SIZE, 1, device=device)
+        next_state_q_values = torch.zeros(BATCH_SIZE, 1, device=device)  # 形状 [BATCH_SIZE, 1]
         if non_final_next_states.size(0) > 0:
-            # .detach() 很重要，我们不希望梯度流经目标网络
             next_state_q_values[non_final_mask] = self.target_net(non_final_next_states).max(1)[
                 0].detach().unsqueeze(1)
 
+        # VVVV CRITICAL FIX: 调整 rewards 的形状 VVVV
+        if rewards.ndim == 1:  # 如果 rewards 是一维的 [BATCH_SIZE]
+            rewards_for_calc = rewards.unsqueeze(1)  # 将其变为 [BATCH_SIZE, 1]
+        else:  # 如果 rewards 因为某种原因已经是 [BATCH_SIZE, 1]
+            rewards_for_calc = rewards
+        # ^^^^ CRITICAL FIX END ^^^^
+        print(f"DEBUG (optimize_model): Shape of 'rewards_for_calc': {rewards_for_calc.shape}")
+
         # 4. 计算期望的 Q 值 (贝尔曼目标: r + γ * max Q')
-        expected_q_values = rewards + (GAMMA * next_state_q_values)
+        # rewards_for_calc 形状是 [BATCH_SIZE, 1]
+        # next_state_q_values 形状是 [BATCH_SIZE, 1]
+        expected_q_values = rewards_for_calc + (GAMMA * next_state_q_values)
+        print(f"DEBUG (optimize_model): Shape of 'expected_q_values': {expected_q_values.shape}")
 
         # 5. 计算损失
+        # current_q_values 和 expected_q_values 的形状现在都应该是 [BATCH_SIZE, 1]
         loss = F.smooth_l1_loss(current_q_values, expected_q_values)
 
         # 6. 优化模型
         self.optimizer.zero_grad()
         loss.backward()
-        # torch.nn.utils.clip_grad_value_(self.policy_net.parameters(), 100) # 可选的梯度裁剪
         self.optimizer.step()
 
         self.num_optimizations += 1
