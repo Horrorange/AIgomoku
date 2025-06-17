@@ -52,7 +52,7 @@ class GomokuEnv:
         print("环境初始化 (__init__) 完成。\n")
 
     def reset(self):
-        print("调用 reset() 方法...")
+        # print("调用 reset() 方法...")
         self.board_state = np.full(self.board_size, EMPTY_SPOT, dtype=np.int8)
         self.current_player = PLAYER_BLACK
         self.game_over = False
@@ -62,7 +62,7 @@ class GomokuEnv:
         # ^^^^ 重置结束 ^^^^
         initial_observation = self.board_state.copy()
         info = {}
-        print("reset() 方法执行完毕。\n")
+        # print("reset() 方法执行完毕。\n")
         return initial_observation, info
 
     def _action_to_coords(self, action):

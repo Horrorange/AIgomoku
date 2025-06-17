@@ -13,11 +13,11 @@ ACTION_SPACE_SIZE = GRID_LINES * GRID_LINES
 BATCH_SIZE = 128
 GAMMA = 0.99
 EPS_START = 0.9
-EPS_END = 0.05
-EPS_DECAY = 10000  # 对于五子棋这种复杂游戏，可能需要更大的值，例如 200000 或更高
+EPS_END = 0.01
+EPS_DECAY = 200000  # 对于五子棋这种复杂游戏，可能需要更大的值，例如 200000 或更高
 TARGET_UPDATE_FREQUENCY = 10  # 例如每10次优化后更新一次目标网络，或者每 N 步/N 局游戏后
 LEARNING_RATE = 1e-4  # 1e-4 or 5e-5 可能是个不错的起点
-REPLAY_MEMORY_CAPACITY = 10000  # 对于五子棋，可能需要更大的容量，如 50000 或 100000
+REPLAY_MEMORY_CAPACITY = 50000  # 对于五子棋，可能需要更大的容量，如 50000 或 100000
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -32,14 +32,19 @@ class DQN(nn.Module):
         self.bn2 = nn.BatchNorm2d(64);
         self.conv3 = nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=1)
         self.bn3 = nn.BatchNorm2d(128);
-        self.q_value_conv = nn.Conv2d(128, 1, kernel_size=1, stride=1, padding=0)
+        self.conv_output_size = 128 * GRID_LINES * GRID_LINES
+        self.fc1 = nn.Linear(self.conv_output_size, 512)  # 全连接层
+        self.fc2 = nn.Linear(512, num_actions)  # 输出层
 
     def forward(self, x):
         x = F.relu(self.bn1(self.conv1(x)));
         x = F.relu(self.bn2(self.conv2(x)))
         x = F.relu(self.bn3(self.conv3(x)));
-        q_values_map = self.q_value_conv(x)
-        return q_values_map.view(q_values_map.size(0), -1)
+
+        x = x.view(x.size(0), -1)  # 展平卷积输出 (Batch_size, 128*15*15)
+        x = F.relu(self.fc1(x))
+        q_values_flat = self.fc2(x)  # 输出Q值
+        return q_values_flat
 
 
 class ReplayBuffer:
@@ -122,8 +127,8 @@ class DQNAgent:
             actions = actions.unsqueeze(1)  # actions 变为 [BATCH_SIZE, 1]
 
         current_q_values = self.policy_net(states).gather(1, actions)  # current_q_values 形状 [BATCH_SIZE, 1]
-        print(f"DEBUG (optimize_model): Shape of 'current_q_values' tensor: {current_q_values.shape}")
-        print(f"DEBUG (optimize_model): Shape of 'dones' tensor from buffer: {dones.shape}")  # 应为 [128]
+        # print(f"DEBUG (optimize_model): Shape of 'current_q_values' tensor: {current_q_values.shape}")
+        # print(f"DEBUG (optimize_model): Shape of 'dones' tensor from buffer: {dones.shape}")  # 应为 [128]
 
         non_final_mask = ~dones
         non_final_next_states = next_states[non_final_mask]
@@ -139,13 +144,13 @@ class DQNAgent:
         else:  # 如果 rewards 因为某种原因已经是 [BATCH_SIZE, 1]
             rewards_for_calc = rewards
         # ^^^^ CRITICAL FIX END ^^^^
-        print(f"DEBUG (optimize_model): Shape of 'rewards_for_calc': {rewards_for_calc.shape}")
+        # print(f"DEBUG (optimize_model): Shape of 'rewards_for_calc': {rewards_for_calc.shape}")
 
         # 4. 计算期望的 Q 值 (贝尔曼目标: r + γ * max Q')
         # rewards_for_calc 形状是 [BATCH_SIZE, 1]
         # next_state_q_values 形状是 [BATCH_SIZE, 1]
         expected_q_values = rewards_for_calc + (GAMMA * next_state_q_values)
-        print(f"DEBUG (optimize_model): Shape of 'expected_q_values': {expected_q_values.shape}")
+        # print(f"DEBUG (optimize_model): Shape of 'expected_q_values': {expected_q_values.shape}")
 
         # 5. 计算损失
         # current_q_values 和 expected_q_values 的形状现在都应该是 [BATCH_SIZE, 1]
